@@ -22,7 +22,7 @@ int get_desktop_name(char *tmp,int size)
 	int result=FALSE;
 	RECT rect={0};
 	if(g_dim.GetDesktopSize(&rect)){
-		int cnt=_snprintf_s(tmp,size,_TRUNCATE,"%i x %i",rect.bottom,rect.right);
+		int cnt=_snprintf_s(tmp,size,_TRUNCATE,"%i x %i",rect.right,rect.bottom);
 		if(cnt>0)
 			result=TRUE;
 	}
