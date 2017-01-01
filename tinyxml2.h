@@ -1620,6 +1620,7 @@ public:
     	Returns XML_SUCCESS (0) on success, or
     	an errorID.
     */
+	XMLError LoadFile( const wchar_t* filename );
     XMLError LoadFile( const char* filename );
 
     /**
@@ -1640,6 +1641,7 @@ public:
     	Returns XML_SUCCESS (0) on success, or
     	an errorID.
     */
+	XMLError SaveFile( const wchar_t* filename, bool compact=false);
     XMLError SaveFile( const char* filename, bool compact = false );
 
     /**

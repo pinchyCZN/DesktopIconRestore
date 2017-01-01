@@ -2065,6 +2065,18 @@ void XMLDocument::DeleteNode( XMLNode* node )	{
     }
 }
 
+XMLError XMLDocument::LoadFile( const wchar_t* filename )
+{
+    Clear();
+    FILE* fp = _wfopen(filename,L"rb");
+    if ( !fp ) {
+        SetError( XML_ERROR_FILE_NOT_FOUND, 0, 0 );
+        return _errorID;
+    }
+    LoadFile( fp );
+    fclose( fp );
+    return _errorID;
+}
 
 XMLError XMLDocument::LoadFile( const char* filename )
 {
@@ -2153,6 +2165,18 @@ XMLError XMLDocument::SaveFile( const char* filename, bool compact )
     FILE* fp = callfopen( filename, "w" );
     if ( !fp ) {
         SetError( XML_ERROR_FILE_COULD_NOT_BE_OPENED, filename, 0 );
+        return _errorID;
+    }
+    SaveFile(fp, compact);
+    fclose( fp );
+    return _errorID;
+}
+
+XMLError XMLDocument::SaveFile( const wchar_t* filename, bool compact )
+{
+	FILE* fp = _wfopen(filename,L"w");
+    if ( !fp ) {
+        SetError( XML_ERROR_FILE_COULD_NOT_BE_OPENED, 0, 0 );
         return _errorID;
     }
     SaveFile(fp, compact);

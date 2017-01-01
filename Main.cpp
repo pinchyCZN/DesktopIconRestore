@@ -10,9 +10,9 @@
 #include "tinyxml2.h"
 
 #pragma warning(disable:4996)
-#define APP_NAME "DesktopRestore"
+#define APP_NAME L"DesktopRestore"
 #define MAX_NAME_LEN 128
-char config_file[MAX_PATH]={0};
+WCHAR config_file[MAX_PATH]={0};
 CDesktopIconManager g_dim;
 HINSTANCE ghinstance;
 HWND hmain=0;
@@ -29,7 +29,7 @@ int get_desktop_name(char *tmp,int size)
 	return result;
 }
 
-int get_appdata_folder(char *path,int size)
+int get_appdata_folder(WCHAR *path,int size)
 {
 	int found=FALSE;
 	ITEMIDLIST *pidl;
@@ -38,8 +38,8 @@ int get_appdata_folder(char *path,int size)
 	if(path==0 || size<MAX_PATH)
 		return found;
 	if(SHGetSpecialFolderLocation(hwindow,CSIDL_APPDATA,&pidl)==NOERROR){
-		if(SHGetPathFromIDListA(pidl,path)){
-			_snprintf_s(path,size,_TRUNCATE,"%s\\%s",path,APP_NAME);
+		if(SHGetPathFromIDList(pidl,path)){
+			_snwprintf_s(path,size,_TRUNCATE,L"%s\\%s",path,APP_NAME);
 			found=TRUE;
 		}
 		if(SHGetMalloc(&palloc)==NOERROR){
@@ -49,32 +49,32 @@ int get_appdata_folder(char *path,int size)
 	}
 	return found;
 }
-int create_folder(char *path)
+int create_folder(WCHAR *path)
 {
 	int result=FALSE;
 	DWORD attrib;
 	if(0==path[0])
 		return result;
-	attrib=GetFileAttributesA(path);
+	attrib=GetFileAttributes(path);
 	if(attrib==MAXDWORD){
-		if(MAXDWORD!=CreateDirectoryA(path,NULL))
+		if(MAXDWORD!=CreateDirectory(path,NULL))
 			result=TRUE;
 	}
 	if(attrib&FILE_ATTRIBUTE_DIRECTORY)
 		result=TRUE;
 	return result;
 }
-int get_config_fname(char *fname,int size)
+int get_config_fname(WCHAR *fname,int size)
 {
 	int result=FALSE;
-	char tmp[MAX_PATH]={0};
-	if(get_appdata_folder(tmp,sizeof(tmp))){
-		_snprintf_s(fname,size,_TRUNCATE,"%s\\%s.xml",tmp,APP_NAME);
+	WCHAR tmp[MAX_PATH]={0};
+	if(get_appdata_folder(tmp,_countof(tmp))){
+		_snwprintf_s(fname,size,_TRUNCATE,L"%s\\%s.xml",tmp,APP_NAME);
 		result=TRUE;
 	}
 	return result;
 }
-int log_info(const char *fmt,...)
+int log_info(const WCHAR *fmt,...)
 {
 	int result=FALSE;
 	HWND hedit;
@@ -84,20 +84,161 @@ int log_info(const char *fmt,...)
 	if(hedit==0)
 		return result;
 	if(fmt==0){
-		result=SetWindowTextA(hedit,"");
+		result=SetWindowText(hedit,L"");
 	}else{
-		char tmp[256];
+		WCHAR tmp[256];
 		va_list vlist;
 		va_start(vlist,fmt);
-		_vsnprintf(tmp,sizeof(tmp),fmt,vlist);
+		_vsnwprintf(tmp,_countof(tmp),fmt,vlist);
 		va_end(vlist);
-		tmp[sizeof(tmp)-1]=0;
+		tmp[_countof(tmp)-1]=0;
 		SendMessage(hedit,EM_SETSEL,-1,-1);
-		result=(int)SendMessageA(hedit,EM_REPLACESEL,FALSE,(LPARAM)tmp);
+		result=(int)SendMessage(hedit,EM_REPLACESEL,FALSE,(LPARAM)tmp);
 	}
 	return result;
 }
-int SaveIconPositions(char *desktop_name,char *fname)
+int save_wchar_data(const WCHAR *text,tinyxml2::XMLElement *xml)
+{
+	int result=FALSE;
+
+	int index=0,i=0;
+	char tmp[MAX_NAME_LEN*4]={0};
+	WCHAR w;
+	while(w=text[index]){
+		if(w==0){
+			tmp[i]=0;
+			break;
+		}else{
+			int j;
+			for(j=0;j<4;j++){
+				char a;
+				a=w>>(12-(j*4));
+				a&=0xF;
+				if(a<=9)
+					a=a+'0';
+				else
+					a=a+'A'-10;
+				tmp[i+j]=a;
+			}
+			i+=4;
+		}
+		index++;
+		if(i>=_countof(tmp))
+			break;
+	}
+	tmp[_countof(tmp)-1]=0;
+	xml->SetText(tmp);
+	xml->SetAttribute("WCHAR","1");
+	return result;
+}
+int save_text_data(const WCHAR *text,tinyxml2::XMLElement *xml)
+{
+	int result=FALSE;
+	int i=0;
+	int save_wchar=FALSE;
+	char tmp[MAX_NAME_LEN]={0};
+	if(text==0 || xml==0)
+		return result;
+	while(i<MAX_NAME_LEN){
+		WCHAR w;
+		int size=0;
+		char a=0;
+		w=text[i];
+		if(w==0){
+			tmp[i]=0;
+			break;
+		}
+		if(0==wctomb_s(&size,&a,1,w)){
+			unsigned char b=(unsigned char)a;
+			if(b<' ' || '&'==b || '<'==b || '>'==b || b>=0x7F){
+				save_wchar=TRUE;
+				break;
+			}else{
+				tmp[i]=a;
+			}
+		}else{
+			save_wchar=TRUE;
+			break;
+		}
+		i++;
+	}
+	if(save_wchar)
+		result=save_wchar_data(text,xml);
+	else{
+		tmp[_countof(tmp)-1]=0;
+		xml->SetText(tmp);
+	}
+	result=TRUE;
+	return result;
+}
+int get_text_data(tinyxml2::XMLElement *xml,WCHAR *out,int size)
+{
+	int result=FALSE;
+	if(0==xml || out==0)
+		return FALSE;
+	if(xml->Attribute("WCHAR")){
+		const char *str;
+		str=xml->GetText();
+		if(str!=0){
+			int i=0,index=0;
+			while(index<size){
+				int j;
+				WCHAR w=0;
+				for(j=0;j<4;j++){
+					char a=str[i+j];
+					if(0==a){
+						w=0;
+						break;
+					}else if(a>='0' && a<='9'){
+						w<<=4;
+						w|=a-'0';
+					}else{
+						w<<=4;
+						a=a&(~0x20);
+						a=a-'A'+10;
+						a=a&0xF;
+						w|=a;
+					}
+				}
+				i+=4;
+				if(j>=4){
+					out[index]=w;
+					index++;
+				}else{
+					if(size>0){
+						out[index]=0;
+						break;
+					}
+				}
+				if(w==0)
+					break;
+			}
+			if(size>0){
+				out[size-1]=0;
+				result=TRUE;
+			}
+		}else if(size>0){
+			out[0]=0;
+			result=TRUE;
+		}
+	}else{
+		const char *str;
+		str=xml->GetText();
+		if(str!=0){
+			size_t num=0;
+			if(0==mbstowcs_s(&num,out,size,str,_TRUNCATE))
+				result=TRUE;
+			else if(size>0)
+				out[0]=0;
+		}
+		else if(size>0){
+			out[0]=0;
+			result=TRUE;
+		}
+	}
+	return result;
+}
+int SaveIconPositions(char *desktop_name,WCHAR *fname)
 {
 	bool result=FALSE;
 	int i,count;
@@ -116,9 +257,8 @@ int SaveIconPositions(char *desktop_name,char *fname)
 				tinyxml2::XMLElement *xml;
 				n1=doc.NewElement("ICON");
 				n2=doc.NewElement("NAME");
-				wcstombs_s(&count,tmp,sizeof(tmp),name,_TRUNCATE);
 				xml=n2->ToElement();
-				xml->SetText(tmp);
+				save_text_data(name,xml);
 				n1->InsertEndChild(n2);
 				n2=doc.NewElement("XPOS");
 				xml=n2->ToElement();
@@ -161,7 +301,7 @@ int RestoreIconPosition(const WCHAR *pszName, int x, int y)
 	return result;
 }
 
-int RestoreIconPositions(char *fname)
+int RestoreIconPositions(WCHAR *fname)
 {
 	int result=FALSE;
 	tinyxml2::XMLDocument doc;
@@ -173,33 +313,37 @@ int RestoreIconPositions(char *fname)
 	result=TRUE;
 	while(xml!=0){
 		if(0==strcmp(xml->Value(),"ICON")){
-			char name[MAX_NAME_LEN]={0};
+			WCHAR name[MAX_NAME_LEN]={0};
 			int x,y;
 			int have[3]={0};
 			tinyxml2::XMLElement *x1;
 			x1=xml->FirstChildElement();
 			while(x1!=0){
 				if(0==strcmp(x1->Value(),"NAME")){
-					strncpy(name,x1->GetText(),sizeof(name));
-					name[sizeof(name)-1]=0;
+					name[0]=0;
+					get_text_data(x1,name,_countof(name));
 					if(name[0]!=0)
 						have[0]=1;
 				}
 				else if(0==strcmp(x1->Value(),"XPOS")){
-					x=atoi(x1->GetText());
-					have[1]=1;
+					const char *s=x1->GetText();
+					if(s!=0){
+						x=atoi(s);
+						have[1]=1;
+					}
 				}
 				else if(0==strcmp(x1->Value(),"YPOS")){
-					y=atoi(x1->GetText());
-					have[2]=1;
+					const char *s=x1->GetText();
+					if(s!=0){
+						y=atoi(s);
+						have[2]=1;
+					}
 				}
 				x1=x1->NextSiblingElement();
 			}
 			if(have[0] && have[1] && have[2]){
-				WCHAR tmp[MAX_NAME_LEN]={0};
-				mbstowcs(tmp,name,_countof(tmp));
-				if(!RestoreIconPosition(tmp,x,y)){
-					log_info("unable to restore:%s\r\n",name);
+				if(!RestoreIconPosition(name,x,y)){
+					log_info(L"unable to restore:%s\r\n",name);
 					result=FALSE;
 				}
 			}
@@ -324,13 +468,12 @@ int set_col_widths(HWND hlview)
 	}
 	return TRUE;
 }
-
-int populate_listview(HWND hlview,char *fname)
+int populate_listview(HWND hlview,WCHAR *fname)
 {
 	int result=FALSE;
 	ListView_DeleteAllItems(hlview);
 	log_info(0);
-	log_info("%s\r\n",fname);
+	log_info(L"%s\r\n",fname);
 	result=set_columns(hlview);
 	if(result){
 		int row=0;
@@ -342,7 +485,7 @@ int populate_listview(HWND hlview,char *fname)
 		while(xml!=0){
 			LV_ITEM lvitem={0};
 			if(0==strcmp(xml->Name(),"DESKTOP")){
-				log_info("Desktop size:%s\r\n",xml->GetText());
+				log_info(L"Desktop size:%S\r\n",xml->GetText());
 			}else if(0==strcmp(xml->Name(),"ICON")){
 				int x,y,ox,oy;
 				int have_current=FALSE;
@@ -352,16 +495,17 @@ int populate_listview(HWND hlview,char *fname)
 				while(x1!=0){
 					if(0==strcmp(x1->Name(),"NAME")){
 						POINT pt={0};
-						const char *n=x1->GetText();
-						mbstowcs(name,n,_countof(name));
-						name[_countof(name)-1]=0;
-						if(g_dim.GetIconPosition(name,&pt)){
-							ox=pt.x;
-							oy=pt.y;
-							have_current=TRUE;
-						}
-						else{
-							log_info("Unable to find icon:%s\r\n",n);
+						if(get_text_data(x1,name,_countof(name))){
+							if(g_dim.GetIconPosition(name,&pt)){
+								ox=pt.x;
+								oy=pt.y;
+								have_current=TRUE;
+							}
+							else{
+								log_info(L"Unable to find icon:%s\r\n",name);
+							}
+						}else{
+							log_info(L"Unable to get NAME text\r\n");
 						}
 					}else if(0==strcmp(x1->Name(),"XPOS")){
 						x=atoi(x1->GetText());
@@ -401,7 +545,7 @@ int populate_listview(HWND hlview,char *fname)
 			xml=xml->NextSiblingElement();
 		}
 		if(pos_wrong>0)
-			log_info("icons in wrong position:%i\r\n",pos_wrong);
+			log_info(L"icons in wrong position:%i\r\n",pos_wrong);
 	}
 	set_col_widths(hlview);
 	return result;
@@ -443,7 +587,7 @@ BOOL CALLBACK DialogProc(HWND hwnd,UINT msg,WPARAM wparam,LPARAM lparam)
 			static int help=FALSE;
 			if(!help){
 				help=TRUE;
-				MessageBoxA(hwnd,config_file,"CONFIG FILE",MB_OK|MB_SYSTEMMODAL);
+				MessageBox(hwnd,config_file,L"CONFIG FILE",MB_OK|MB_SYSTEMMODAL);
 				help=FALSE;
 			}
 		}
@@ -483,15 +627,15 @@ BOOL CALLBACK DialogProc(HWND hwnd,UINT msg,WPARAM wparam,LPARAM lparam)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     ghinstance = hInstance;
-	char tmp[MAX_PATH]={0};
-	get_appdata_folder(tmp,sizeof(tmp));
+	WCHAR tmp[MAX_PATH]={0};
+	get_appdata_folder(tmp,_countof(tmp));
 	if(tmp[0]==0)
-		MessageBoxA(NULL,"unable to access app data folder","ERROR",MB_OK|MB_SYSTEMMODAL);
+		MessageBox(NULL,L"unable to access app data folder",L"ERROR",MB_OK|MB_SYSTEMMODAL);
 	else{
 		if(create_folder(tmp))
-			get_config_fname(config_file,sizeof(config_file));
+			get_config_fname(config_file,_countof(config_file));
 		else
-			MessageBoxA(NULL,"unable to create app data folder","ERROR",MB_OK|MB_SYSTEMMODAL);
+			MessageBox(NULL,L"unable to create app data folder",L"ERROR",MB_OK|MB_SYSTEMMODAL);
 	}
 	DialogBox(hInstance,MAKEINTRESOURCE(IDD_DIALOG),NULL,DialogProc);
     return 0;
